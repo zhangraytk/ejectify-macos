@@ -1,0 +1,61 @@
+# Cloud build of upstream Ejectify (MIT-licensed).
+# Place in a FORK of https://github.com/nielsmouthaan/ejectify-macos
+# as .github/workflows/build-ejectify.yml.
+name: Build Ejectify for Apple Silicon
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/build-ejectify.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Show Xcode version
+        run: xcodebuild -version
+      - name: Resolve Swift package dependencies
+        run: xcodebuild -resolvePackageDependencies -project Ejectify.xcodeproj -scheme Ejectify
+      - name: Build for arm64 (without developer certificate)
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Ejectify.xcodeproj \
+            -scheme Ejectify \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/EjectifyDerived" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM='' \
+            build
+      - name: Apply local ad-hoc signature and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/EjectifyDerived/Build/Products/Release/Ejectify.app"
+          test -f "$APP/Contents/MacOS/Ejectify"
+          file "$APP/Contents/MacOS/Ejectify"
+          # A local ad-hoc signature is not Developer ID notarization.
+          codesign --force --deep --sign - --timestamp=none "$APP"
+          codesign --verify --deep --verbose=2 "$APP"
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/Ejectify-arm64.zip"
+          shasum -a 256 "$RUNNER_TEMP/Ejectify-arm64.zip" | tee "$RUNNER_TEMP/SHA256.txt"
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ejectify-arm64-unsigned
+          path: |
+            ${{ runner.temp }}/Ejectify-arm64.zip
+            ${{ runner.temp }}/SHA256.txt
+          if-no-files-found: error
+          retention-days: 7
