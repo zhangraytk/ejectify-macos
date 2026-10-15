@@ -14,13 +14,20 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Check Xcode and Swift toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          swiftc -version
+          # Diagnostics 7.0 uses nonisolated(nonsending), introduced in Swift 6.2.
+          swiftc -version | grep -Eq 'Swift version (6\.([2-9]|[1-9][0-9])\.|[7-9]\.|[1-9][0-9]\.)' \
+            || { echo 'Error: Ejectify dependencies require Swift 6.2 or newer.' >&2; exit 1; }
       - name: Resolve Swift package dependencies
         run: xcodebuild -resolvePackageDependencies -project Ejectify.xcodeproj -scheme Ejectify
       - name: Build for arm64 (without developer certificate)
